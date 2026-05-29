@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="description" content="AVer 攝影機工程師專用控制台">
+    <title>MTBOX Engineer Console</title>
+
+    <!-- PWA 設定 -->
+    <link rel="manifest" href="manifest.json">
+
+    <!-- iOS / iPadOS 支援 -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="MTBOX">
+    <link rel="apple-touch-icon" href="icons/icon-192.png">
+
+    <!-- Android / Chrome -->
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#4f46e5">
+
+    <!-- 安全區域（iPhone 瀏海 / iPad）-->
+    <style>
+      body { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+    </style>
+
+    <!-- 註冊 Service Worker -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('service-worker.js')
+            .then(reg => console.log('SW registered:', reg.scope))
+            .catch(err => console.warn('SW failed:', err));
+        });
+      }
+    </script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap');
+
+        :root {
+            --transition-fast: 0.2s ease-in-out;
+            --transition-normal: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            --glow-color: rgba(99, 102, 241, 0.5);
+            --glass-bg: rgba(17, 24, 39, 0.75);
+            --glass-border: rgba(255, 255, 255, 0.1);
+        }
+
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background-color: #030712;
+            background-image: radial-gradient(circle at top right, rgba(79, 70, 229, 0.15), transparent 600px),
+                              radial-gradient(circle at bottom left, rgba(168, 85, 247, 0.15), transparent 600px);
+            background-attachment: fixed;
+            overflow-x: hidden;
+        }
+
+        .code-font { font-family: 'Fira Code', monospace; }
+
+        .glass-panel {
+            background: var(--glass-bg);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--glass-border);
+        }
+
+        .btn-glow { transition: all var(--transition-normal); }
+        .btn-glow:not(:disabled):hover { box-shadow: 0 0 20px var(--glow-color); transform: translateY(-2px); }
+        .btn-glow:active { transform: translateY(1px); }
+        .btn-glow:disabled { opacity: 0.5; cursor: not-allowed; filter: grayscale(1); }
+
+        .tab-active { 
+            background: linear-gradient(135deg, rgba(79, 70, 229, 0.3), rgba(168, 85, 247, 0.2));
+            color: #a5b4fc; 
+            border: 1px solid rgba(99, 102, 241, 0.5); 
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        }
+
+        .toast { 
+            visibility: hidden; 
+            opacity: 0; 
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); 
+            z-index: 1000;
+            transform: translate(-50%, 20px);
+        }
+        .toast.show { 
+            visibility: visible; 
+            opacity: 1; 
+            transform: translate(-50%, 0);
+        }
+        .toast.error { background-color: rgba(220, 38, 38, 0.8); border-color: rgba(239, 68, 68, 0.5); color: #fff; }
+
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.2); }
+        ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #6366f1; }
+
+        .ptz-btn-active { background: linear-gradient(135deg, #f97316, #ea580c); border-color: #fb923c; color: white; box-shadow: 0 0 15px rgba(249, 115, 22, 0.4); }
+        .live-btn-active { background: linear-gradient(135deg, #a855f7, #9333ea); border-color: #c084fc; color: white; box-shadow: 0 0 15px rgba(168, 85, 247, 0.4); }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fade-in { animation: fadeIn 0.4s ease-out forwards; }
+    </style>
+</head>
+<body class="text-gray-100 min-h-screen flex flex-col items-center p-4 sm:p-6 relative">
+
+    <div id="loginModal" class="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-xl transition-all duration-500">
+        <div class="glass-panel p-8 rounded-3xl w-full max-w-md shadow-2xl border border-white/10 scale-95 animate-fade-in">
+            <div class="flex flex-col items-center mb-8">
+                <div class="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center mb-4 shadow-lg shadow-indigo-500/20">
+                    <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                </div>
+                <h2 class="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400">MTBOX 單機測試連線</h2>
+                <p class="text-gray-500 text-xs mt-2 tracking-widest uppercase">Engineer Control Console</p>
+                <div class="mt-4 px-3 py-2 bg-red-900/30 border border-red-500/30 rounded-lg text-xs text-red-300 w-full text-center">
+                    ⚠️ 請確認已使用 `--disable-web-security` 參數啟動 Chrome
+                </div>
+            </div>
+            
+            <div class="space-y-5">
+                <div class="group">
+                    <label class="block text-[10px] font-bold text-gray-400 mb-2 uppercase tracking-[0.2em] transition-colors group-focus-within:text-indigo-400">Camera IP Address</label>
+                    <input type="text" id="camIp" class="w-full bg-gray-900/80 border border-gray-700 rounded-xl px-4 py-3.5 text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 transition-all font-mono" placeholder="192.168.1.168">
+                </div>
+                <div class="group">
+                    <label class="block text-[10px] font-bold text-gray-400 mb-2 uppercase tracking-[0.2em] transition-colors group-focus-within:text-purple-400">Username</label>
+                    <input type="text" id="camUser" class="w-full bg-gray-900/80 border border-gray-700 rounded-xl px-4 py-3.5 text-white focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500/50 transition-all">
+                </div>
+                <div class="group">
+                    <label class="block text-[10px] font-bold text-gray-400 mb-2 uppercase tracking-[0.2em] transition-colors group-focus-within:text-pink-400">Password</label>
+                    <input type="password" id="camPass" class="w-full bg-gray-900/80 border border-gray-700 rounded-xl px-4 py-3.5 text-white focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500/50 transition-all">
+                </div>
+                
+                <div class="flex items-center space-x-2 pt-2">
+                    <input type="checkbox" id="saveCreds" class="rounded border-gray-700 bg-gray-900 text-indigo-600 focus:ring-indigo-500/50" checked>
+                    <label for="saveCreds" class="text-xs text-gray-400 cursor-pointer select-none">記住此 IP 與帳號</label>
+                </div>
+
+                <button id="connectBtn" class="w-full mt-4 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 py-4 rounded-xl font-bold text-white shadow-xl shadow-indigo-500/10 active:scale-95 transition-all">
+                    進入控制台
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="mainApp" class="w-full max-w-[1200px] flex flex-col items-center opacity-0 pointer-events-none transition-all duration-700 hidden scale-100">
+        <header class="w-full flex justify-between items-center mb-8 px-4">
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/20">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                </div>
+                <div>
+                    <h1 class="font-bold text-lg leading-tight">AVer Console</h1>
+                    <p class="text-[10px] text-gray-500 font-mono" id="displayIp">IP: 0.0.0.0 <span class="ml-2 px-1.5 py-0.5 bg-indigo-900/50 rounded text-indigo-300">v1.1</span></p>
+                </div>
+            </div>
+            <button id="logoutBtn" class="text-xs font-bold text-gray-500 hover:text-red-400 transition-colors uppercase tracking-widest px-4 py-2 rounded-lg hover:bg-red-400/10">斷開連線</button>
+        </header>
+
+        <div class="mb-8 flex justify-center relative w-full px-2">
+            <div class="relative w-full max-w-3xl group">
+                <div class="absolute -inset-1 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-2xl blur opacity-10 group-hover:opacity-25 transition duration-1000"></div>
+                <img id="cameraView" alt="監視畫面" class="relative rounded-2xl border border-white/5 shadow-2xl w-full aspect-video bg-gray-950 object-cover" loading="lazy">
+                <div class="absolute top-4 right-4 glass-panel px-3 py-1.5 rounded-full text-[10px] font-bold flex items-center shadow-lg border-white/10">
+                    <div class="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.8)]"></div>LIVE
+                </div>
+            </div>
+        </div>
+        
+        <nav class="flex space-x-2 mb-10 glass-panel p-2 rounded-2xl shadow-2xl sticky top-4 z-50 flex-wrap justify-center backdrop-blur-2xl border border-white/10 w-full max-w-[900px] mx-2">
+            <button data-tab="control" class="px-4 md:px-5 py-3 rounded-xl text-sm font-semibold transition-all tab-active">場景切換</button>
+            <button data-tab="preset-manager" class="px-4 md:px-5 py-3 rounded-xl text-sm font-semibold transition-all text-gray-400 hover:text-white hover:bg-white/5">預設位管理</button>
+            <button data-tab="live-view" class="px-4 md:px-5 py-3 rounded-xl text-sm font-semibold transition-all text-gray-400 hover:text-white hover:bg-white/5">導播佈局</button>
+            <button data-tab="ptz-home" class="px-4 md:px-5 py-3 rounded-xl text-sm font-semibold transition-all text-gray-400 hover:text-white hover:bg-white/5">PTZ 工具</button>
+            <button data-tab="tester" class="px-4 md:px-5 py-3 rounded-xl text-sm font-semibold transition-all text-gray-400 hover:text-white hover:bg-white/5">API 測試</button>
+        </nav>
+
+        <main class="w-full px-2">
+            
+            <section id="content-control" class="glass-panel rounded-3xl shadow-2xl p-6 md:p-8 w-full max-w-5xl mx-auto block animate-fade-in">
+                <div class="flex flex-col sm:flex-row justify-between items-center mb-8 gap-4 border-b border-white/5 pb-6">
+                    <div>
+                        <h2 class="text-2xl font-bold text-indigo-300">場景控制中心</h2>
+                        <p class="text-xs text-gray-500 mt-1">快速切換攝影機預設 Profile (P01-P36)｜預設管理位已擴充至 20 組</p>
+                    </div>
+                    
+                    <button id="syncStatus" class="flex items-center text-[11px] font-bold text-gray-300 bg-gray-800/80 px-5 py-2.5 rounded-xl border border-white/5 hover:bg-gray-700/80 hover:border-indigo-400/50 transition-all shadow-lg group active:scale-95">
+                        <div class="w-2 h-2 rounded-full mr-2 bg-yellow-500" id="syncDot"></div>
+                        <span id="syncText">等待同步...</span>
+                    </button>
+                </div>
+                
+                <div class="bg-gray-900/40 p-5 rounded-2xl border border-white/5 flex flex-col w-full shadow-inner">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
+                        <h3 class="text-sm font-bold text-gray-400 uppercase tracking-widest flex items-center">
+                            <span class="w-1.5 h-4 bg-indigo-500 rounded-full mr-2"></span>Presets List
+                        </h3>
+                        <div class="flex space-x-2 w-full sm:w-auto">
+                            <button data-action="pause" class="flex-1 sm:flex-none text-[11px] bg-red-900/20 text-red-400 border border-red-500/20 px-4 py-2 rounded-lg font-bold hover:bg-red-500 hover:text-white transition-all">暫停追蹤</button>
+                            <button data-action="resume" class="flex-1 sm:flex-none text-[11px] bg-green-900/20 text-green-400 border border-green-500/20 px-4 py-2 rounded-lg font-bold hover:bg-green-500 hover:text-white transition-all">恢復追蹤</button>
+                        </div>
+                    </div>
+                    
+                    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 overflow-y-auto pr-2 custom-scrollbar max-h-[480px]" id="allProfileButtons">
+                    </div>
+                </div>
+            </section>
+
+            <section id="content-preset-manager" class="glass-panel rounded-3xl shadow-2xl p-6 md:p-8 w-full max-w-4xl mx-auto hidden animate-fade-in">
+                <div class="flex flex-col sm:flex-row justify-between items-center mb-8 gap-4 border-b border-white/5 pb-6">
+                    <div>
+                        <h2 class="text-2xl font-bold text-teal-300">預設位管理 (動態截圖版)</h2>
+                        <p class="text-xs text-gray-500 mt-1">一鍵刷新會依序呼叫預設位並等待攝影機移動到位後截圖</p>
+                    </div>
+                    
+                    <div class="flex space-x-3 w-full sm:w-auto">
+                        <button onclick="updateAllThumbnails(event)" class="flex-1 sm:flex-none flex items-center justify-center text-[11px] font-bold text-white bg-indigo-600/80 px-4 py-2.5 rounded-xl border border-indigo-400/30 hover:bg-indigo-500 hover:border-indigo-300 transition-all shadow-lg active:scale-95">
+                            <span class="mr-1">🔄</span> 一鍵循序刷新
+                        </button>
+                        <button onclick="clearAllThumbnails()" class="flex-1 sm:flex-none text-[11px] font-bold text-gray-300 bg-gray-800/80 px-4 py-2.5 rounded-xl border border-white/5 hover:bg-gray-700/80 hover:border-teal-400/50 transition-all shadow-lg active:scale-95">
+                            清除重置
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="bg-gray-900/40 p-5 rounded-2xl border border-white/5 shadow-inner">
+                    <div id="preset-grid" class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    </div>
+                </div>
+            </section>
+
+            <section id="content-live-view" class="glass-panel rounded-3xl shadow-2xl p-6 md:p-8 w-full max-w-5xl mx-auto hidden animate-fade-in space-y-8">
+                <h2 class="text-2xl font-bold text-center text-purple-300">Live View 導播控制</h2>
+                <div class="flex justify-center space-x-3">
+                    <button onclick="window.goAction('request=enableLiveMode')" class="btn-glow bg-green-900/20 text-green-400 border border-green-500/20 px-6 py-2.5 rounded-xl font-bold hover:bg-green-500 hover:text-white transition-all">開啟 Live Mode</button>
+                    <button onclick="window.goAction('request=disableLiveMode')" class="btn-glow bg-red-900/20 text-red-400 border border-red-500/20 px-6 py-2.5 rounded-xl font-bold hover:bg-red-500 hover:text-white transition-all">關閉 Live Mode</button>
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="bg-gray-900/40 p-6 rounded-2xl border border-white/5">
+                        <label class="block text-[10px] font-bold text-gray-500 mb-4 uppercase tracking-[0.2em]">1. Select Layout</label>
+                        <div id="layout-container" class="grid grid-cols-2 gap-2"></div>
+                    </div>
+                    <div class="bg-gray-900/40 p-6 rounded-2xl border border-white/5 flex flex-col">
+                        <label class="block text-[10px] font-bold text-gray-500 mb-4 uppercase tracking-[0.2em]">2. Camera Sources</label>
+                        <div id="source-config-container" class="space-y-3 flex-1"></div>
+                        <button id="applyLiveBtn" class="mt-8 w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 py-4 rounded-xl font-bold text-white shadow-lg active:scale-95 transition-all flex items-center justify-center">
+                            <span id="applyLiveText">套用設定</span>
+                            <div id="applyLiveLoader" class="hidden ml-2 animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <section id="content-ptz-home" class="glass-panel rounded-3xl shadow-2xl p-6 md:p-8 w-full max-w-4xl mx-auto hidden animate-fade-in">
+                <h2 class="text-2xl font-bold text-center mb-8 text-orange-300">PTZ 歸位工具</h2>
+                <div class="space-y-6">
+                    <div class="bg-gray-900/40 p-6 rounded-2xl border border-white/5">
+                        <label class="block text-[10px] font-bold text-gray-500 mb-4 uppercase tracking-[0.2em]">Target Camera (1-4)</label>
+                        <div id="cam-container" class="grid grid-cols-4 gap-2"></div>
+                    </div>
+                    <div class="bg-gray-900/40 p-6 rounded-2xl border border-white/5">
+                        <label class="block text-[10px] font-bold text-gray-500 mb-4 uppercase tracking-[0.2em]">View Index (0-29)</label>
+                        <div id="view-container" class="grid grid-cols-5 sm:grid-cols-10 gap-2"></div>
+                    </div>
+                    <button id="executePtzBtn" class="w-full bg-gradient-to-r from-orange-600 to-yellow-500 hover:from-orange-500 hover:to-yellow-400 py-4 rounded-xl font-bold text-white shadow-lg active:scale-95 transition-all">執行 PTZ 歸位</button>
+                </div>
+            </section>
+
+            <section id="content-tester" class="glass-panel rounded-3xl shadow-2xl p-6 md:p-8 w-full max-w-5xl mx-auto hidden animate-fade-in space-y-4">
+                <h2 class="text-2xl font-bold text-center text-cyan-300">API 測試中心</h2>
+                <div class="bg-gray-900/40 p-6 rounded-2xl border border-white/5">
+                    <div class="flex flex-col md:flex-row gap-4 items-end">
+                        <div class="flex-1 w-full">
+                            <label class="block text-[10px] font-bold text-gray-500 mb-2 uppercase tracking-[0.2em]">Select API Command</label>
+                            <select id="commandSelect" class="w-full bg-gray-800 border border-white/10 text-white rounded-xl px-4 py-3 focus:outline-none focus:ring-1 focus:ring-cyan-500 text-sm">
+                                <optgroup label="🔍 Query" class="bg-gray-900">
+                                    <option value="request=queryDeviceStatus">查詢設備狀態</option>
+                                    <option value="request=queryOnlineDevice">查詢在線設備</option>
+                                    <option value="request=queryAllProfileTbInfo">查詢所有 Profile</option>
+                                    <option value="request=queryPauseStatus">查詢暫停狀態</option>
+                                </optgroup>
+                                <optgroup label="⚙️ Settings" class="bg-gray-900">
+                                    <option value="request=enableLiveMode">開啟導播模式</option>
+                                    <option value="request=disableLiveMode">關閉導播模式</option>
+                                </optgroup>
+                            </select>
+                        </div>
+                        <button id="sendTestBtn" class="w-full md:w-auto bg-cyan-600 hover:bg-cyan-500 py-3 px-8 rounded-xl font-bold transition-all active:scale-95 text-white">發送測試</button>
+                    </div>
+                </div>
+                <div class="bg-[#050505] rounded-2xl border border-white/5 p-4 h-[400px] overflow-auto relative shadow-inner">
+                    <pre id="responseOutput" class="code-font text-[12px] text-emerald-400/80 whitespace-pre-wrap">等待中...</pre>
+                    <div id="loader" class="hidden absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-10">
+                        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-500"></div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <div id="statusMessage" class="toast fixed bottom-6 left-1/2 flex items-center px-6 py-3 rounded-2xl border shadow-2xl glass-panel text-white min-w-[200px] justify-center" role="status">
+        <span id="statusText">已送出</span>
+    </div>
+
+    <script>
+        /**
+         * ENGINEER CONSOLE CORE
+         * Optimized for Stability, Performance, and UX
+         */
+        
+        // --- 核心共用函數：延遲與轉換 ---
+        const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+        
+        const blobToBase64 = (blob) => {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(blob);
+                reader.onloadend = () => resolve(reader.result);
+                reader.onerror = reject;
+            });
+        };
+
+        // 1. Configuration & Initial State
+        const CONFIG = {
+            LIVE_LAYOUTS: [
+                { id: 0, name: '0 - PIP', srcCount: 2 }, { id: 1, name: '1 - Single', srcCount: 1 }, 
+                { id: 2, name: '2 - Side-by-side', srcCount: 2 }, { id: 3, name: '3 - Main Speaker 1', srcCount: 3 }, 
+                { id: 4, name: '4 - Main Speaker 2', srcCount: 4 }, { id: 5, name: '5 - Quad View', srcCount: 4 }
+            ],
+            CAM_REFRESH_MS: 500,
+            TOAST_MS: 3000,
+            CAM_COUNT: 4,
+            VIEW_COUNT: 30,
+            PROFILE_COUNT: 36,
+            PTZ_WAIT_MS: 3500 // 攝影機物理移動等待時間 (3.5秒)
+        };
+
+        const state = { 
+            ip: '', auth: '',
+            selectedCam: 1, selectedView: 0,
+            liveLayout: 1, sourceMap: { 1: 1, 2: 2, 3: 3, 4: 4 },
+            isStreaming: false, refreshTimer: null,
+            profiles: [] // 儲存已讀取的 Profile 列表，供各分頁使用
+        };
+
+        const dom = {
+            login: { modal: $('#loginModal'), ip: $('#camIp'), user: $('#camUser'), pass: $('#camPass'), save: $('#saveCreds'), btn: $('#connectBtn') },
+            app: $('#mainApp'),
+            camImg: $('#cameraView'),
+            toast: { el: $('#statusMessage'), text: $('#statusText') },
+            tabs: document.querySelectorAll('[data-tab]'),
+            profiles: $('#allProfileButtons'),
+            sync: { dot: $('#syncDot'), text: $('#syncText'), btn: $('#syncStatus') },
+            tester: { select: $('#commandSelect'), btn: $('#sendTestBtn'), output: $('#responseOutput'), loader: $('#loader') },
+            live: { layout: $('#layout-container'), source: $('#source-config-container'), applyBtn: $('#applyLiveBtn'), loader: $('#applyLiveLoader') },
+            ptz: { cam: $('#cam-container'), view: $('#view-container'), btn: $('#executePtzBtn') }
+        };
+
+        function $(id) { return id.startsWith('#') ? document.querySelector(id) : document.querySelectorAll(id); }
+
+        // 2. Storage & Auth
+        function initStorage() {
+            const savedIp = localStorage.getItem('cam_ip');
+            const savedUser = localStorage.getItem('cam_user');
+            if (savedIp) dom.login.ip.value = savedIp;
+            if (savedUser) dom.login.user.value = savedUser;
+        }
+
+        // 3. API Core
+        async function callApi(cmd) {
+            if (!state.ip) return;
+            const url = `http://${state.ip}/${cmd}`;
+            try {
+                const res = await fetch(url, {
+                    method: 'GET',
+                    headers: { 'Authorization': `Basic ${state.auth}` }
+                });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                return res;
+            } catch (err) {
+                showToast(`連線失敗: 請確認已使用 Chrome 除錯模式捷徑`, 'error');
+                throw err;
+            }
+        }
+
+        function showToast(msg, type = 'success') {
+            dom.toast.text.textContent = msg;
+            dom.toast.el.className = `toast fixed bottom-6 left-1/2 flex items-center px-6 py-3 rounded-2xl border shadow-2xl glass-panel text-white show ${type === 'error' ? 'error' : ''}`;
+            clearTimeout(dom.toast.timer);
+            dom.toast.timer = setTimeout(() => dom.toast.el.classList.remove('show'), CONFIG.TOAST_MS);
+        }
+
+        // 4. Stream Logic
+        async function updateCameraFrame() {
+            if (!state.isStreaming || document.visibilityState !== 'visible') return;
+
+            const url = `http://${state.ip}/snapshot/snapshot?t=${Date.now()}`;
+            try {
+                const res = await fetch(url, { headers: { 'Authorization': `Basic ${state.auth}` } });
+                if (!res.ok) throw new Error();
+                const blob = await res.blob();
+                const objUrl = URL.createObjectURL(blob);
+                
+                const oldUrl = dom.camImg.src;
+                dom.camImg.src = objUrl;
+                dom.camImg.onload = () => {
+                    if (oldUrl.startsWith('blob:')) URL.revokeObjectURL(oldUrl);
+                };
+            } catch (e) {
+            } finally {
+                state.refreshTimer = setTimeout(updateCameraFrame, CONFIG.CAM_REFRESH_MS);
+            }
+        }
+
+        // 5. Actions & Features
+        async function fetchProfiles() {
+            dom.sync.dot.className = "w-2 h-2 rounded-full mr-2 bg-yellow-500 animate-pulse";
+            dom.sync.text.textContent = "同步中...";
+            
+            try {
+                const res = await callApi('request=queryAllProfileTbInfo');
+                const text = await res.text();
+                let data = [];
+                try {
+                    const start = text.indexOf('[');
+                    const end = text.lastIndexOf(']');
+                    data = JSON.parse(text.substring(start, end + 1));
+                } catch { throw new Error("資料格式異常"); }
+                
+                data.sort((a, b) => a.pid - b.pid);
+                state.profiles = data; // 存入狀態供其他分頁使用
+                renderProfiles(data);
+                
+                dom.sync.dot.className = "w-2 h-2 rounded-full mr-2 bg-green-500 shadow-lg shadow-green-500/50";
+                dom.sync.text.textContent = `同步成功 (${data.length})`;
+            } catch (err) {
+                dom.sync.dot.className = "w-2 h-2 rounded-full mr-2 bg-red-500 shadow-lg shadow-red-500/50";
+                dom.sync.text.textContent = "同步失敗";
+                const fallbackData = Array.from({length: CONFIG.PROFILE_COUNT}, (_, i) => ({ pid: i+1, profileName: "" }));
+                state.profiles = fallbackData;
+                renderProfiles(fallbackData);
+            } finally {
+                // 同步完成後更新預設位管理頁面的名稱標籤，避免清除已截好的圖片
+                updatePresetNames();
+            }
+        }
+
+        function renderProfiles(list) {
+            const fragment = document.createDocumentFragment();
+            dom.profiles.innerHTML = '';
+            
+            list.forEach(p => {
+                const btn = document.createElement('button');
+                const rawName = p.profileName?.replace(/^\d+-/, '').trim();
+                const name = rawName ? rawName : `設定檔 ${p.pid}`;
+                
+                btn.className = `btn-glow group relative bg-gray-800/40 hover:bg-indigo-600 border border-white/5 p-3 rounded-xl text-left overflow-hidden transition-all duration-300 active:scale-95`;
+                btn.innerHTML = `
+                    <div class="text-[9px] font-mono text-gray-500 group-hover:text-indigo-200 uppercase tracking-tighter">P${String(p.pid).padStart(2,'0')}</div>
+                    <div class="text-[11px] font-bold text-gray-200 group-hover:text-white truncate mt-0.5">${name}</div>
+                `;
+                btn.onclick = () => window.goAction(`request=setProfile&profile=${p.pid}`, `P${p.pid} - ${name}`);
+                fragment.appendChild(btn);
+            });
+            dom.profiles.appendChild(fragment);
+        }
+
+        async function goAction(cmd, label) {
+            try {
+                await callApi(cmd);
+                showToast(`執行成功: ${label || cmd}`);
+            } catch (e) {}
+        }
+        window.goAction = goAction;
+
+        // --- 預設位管理分頁邏輯 (含持久化儲存機制) ---
+        function initPresetPage() {
+            const grid = document.getElementById('preset-grid');
+            grid.innerHTML = '';
+            
+            for (let i = 1; i <= 20; i++) {
+                const profileData = state.profiles ? state.profiles.find(p => p.pid === i) : null;
+                const rawName = profileData?.profileName?.replace(/^\d+-/, '').trim();
+                const displayName = rawName ? rawName : `設定檔 ${i}`;
+
+                // 從 localStorage 讀取已快取的 Base64 截圖
+                const savedThumb = localStorage.getItem(`saved_thumb_p${i}`);
+                const imgSrc = savedThumb ? savedThumb : '';
+                const imgOpacityClass = savedThumb ? '' : 'opacity-0';
+
+                const div = document.createElement('div');
+                div.className = "flex flex-row items-center bg-gray-900/60 p-3 rounded-2xl border border-white/5 hover:border-teal-500/30 transition-all group gap-4";
+                div.innerHTML = `
+                    <div class="w-32 sm:w-40 shrink-0 aspect-video bg-black/50 rounded-xl overflow-hidden border border-white/5 relative flex items-center justify-center">
+                        <span class="text-gray-600 text-[10px] absolute z-0">No Image</span>
+                        <img id="thumb-p${i}" src="${imgSrc}" class="relative z-10 w-full h-full object-cover transition-opacity duration-300 ${imgOpacityClass}">
+                    </div>
+                    
+                    <div class="flex flex-col flex-1 space-y-2 justify-center overflow-hidden">
+                        <div class="flex flex-col">
+                            <span class="text-teal-400 font-bold font-mono text-lg leading-none">P${String(i).padStart(2, '0')}</span>
+                            <span id="preset-name-p${i}" class="text-gray-400 text-[10px] mt-1 truncate w-full" title="${displayName}">${displayName}</span>
+                        </div>
+                        <div class="flex space-x-2 pt-1">
+                            <button id="btn-update-p${i}" onclick="triggerSingleUpdate(${i})" class="flex-1 bg-gray-800 hover:bg-teal-600/50 text-gray-300 hover:text-white text-[11px] px-2 py-2 rounded-lg border border-white/10 transition-all flex items-center justify-center shadow-md active:scale-95 whitespace-nowrap" title="擷取當前畫面">
+                                📸 擷取
+                            </button>
+                            <button onclick="applyPreset(${i})" class="flex-1 bg-teal-600/20 hover:bg-teal-500 text-teal-300 hover:text-white border border-teal-500/30 text-[11px] px-2 py-2 rounded-lg transition-all font-bold shadow-md active:scale-95 whitespace-nowrap">
+                                呼叫
+                            </button>
+                        </div>
+                    </div>
+                `;
+                grid.appendChild(div);
+            }
+        }
+
+        function updatePresetNames() {
+            for (let i = 1; i <= 20; i++) {
+                const nameEl = document.getElementById(`preset-name-p${i}`);
+                if (nameEl) {
+                    const profileData = state.profiles ? state.profiles.find(p => p.pid === i) : null;
+                    const rawName = profileData?.profileName?.replace(/^\d+-/, '').trim();
+                    const displayName = rawName ? rawName : `設定檔 ${i}`;
+                    nameEl.textContent = displayName;
+                    nameEl.title = displayName;
+                }
+            }
+        }
+
+        async function fetchThumbnailData(id) {
+            const img = document.getElementById(`thumb-p${id}`);
+            const url = `http://${state.ip}/snapshot/snapshot?t=${Date.now()}`;
+            
+            const res = await fetch(url, { headers: { 'Authorization': `Basic ${state.auth}` } });
+            if (!res.ok) throw new Error("HTTP Status Error");
+            const blob = await res.blob();
+            
+            // 轉換為 Base64 字串並儲存到瀏覽器快取中
+            const base64data = await blobToBase64(blob);
+            localStorage.setItem(`saved_thumb_p${id}`, base64data);
+            
+            if (img.src && img.src.startsWith('blob:')) {
+                URL.revokeObjectURL(img.src);
+            }
+            img.src = base64data;
+            img.onload = () => img.classList.remove('opacity-0');
+        }
+
+        async function triggerSingleUpdate(id) {
+            const btn = document.getElementById(`btn-update-p${id}`);
+            const originalHTML = btn.innerHTML;
+            
+            btn.innerHTML = '<div class="animate-spin h-3 w-3 border-2 border-white/50 border-t-white rounded-full"></div>';
+            btn.disabled = true;
+
+            try {
+                await fetchThumbnailData(id);
+                showToast(`P${id} 截圖更新成功`);
+            } catch (e) {
+                showToast(`無法取得 P${id} 截圖，請檢查連線`, 'error');
+            } finally {
+                btn.innerHTML = originalHTML;
+                btn.disabled = false;
+            }
+        }
+
+        async function updateAllThumbnails(event) {
+            const mainBtn = event.currentTarget;
+            const originalHTML = mainBtn.innerHTML;
+            
+            mainBtn.innerHTML = '<div class="animate-spin h-3 w-3 border-2 border-white/50 border-t-white rounded-full mr-2"></div> 批次執行中...';
+            mainBtn.disabled = true;
+
+            let hasError = false;
+
+            for (let i = 1; i <= 20; i++) {
+                const subBtn = document.getElementById(`btn-update-p${i}`);
+                if(!subBtn) continue;
+                
+                try {
+                    subBtn.innerHTML = '<div class="animate-spin h-3 w-3 border-2 border-orange-500/50 border-t-orange-500 rounded-full mr-1"></div> 移動中';
+                    subBtn.disabled = true;
+                    subBtn.classList.replace('text-gray-300', 'text-orange-400');
+                    await callApi(`request=setProfile&profile=${i}`);
+                    
+                    await delay(CONFIG.PTZ_WAIT_MS);
+
+                    subBtn.innerHTML = '<div class="animate-spin h-3 w-3 border-2 border-white/50 border-t-white rounded-full mr-1"></div> 擷取中';
+                    subBtn.classList.replace('text-orange-400', 'text-white');
+                    await fetchThumbnailData(i);
+                    
+                    subBtn.innerHTML = '📸 擷取';
+                    subBtn.classList.replace('text-white', 'text-gray-300');
+
+                } catch(e) {
+                    hasError = true;
+                    subBtn.innerHTML = '❌ 失敗';
+                    subBtn.classList.replace('text-white', 'text-red-400');
+                } finally {
+                    subBtn.disabled = false;
+                }
+            }
+
+            if (hasError) {
+                showToast("部分截圖更新失敗，請確認設備狀態", "error");
+            } else {
+                showToast("20 組預設位截圖已依序更新完成");
+            }
+
+            mainBtn.innerHTML = originalHTML;
+            mainBtn.disabled = false;
+        }
+
+        function clearAllThumbnails() {
+            if(!confirm('確定要清除所有已儲存的預設位截圖嗎？')) return;
+            for(let i = 1; i <= 20; i++) {
+                localStorage.removeItem(`saved_thumb_p${i}`);
+            }
+            initPresetPage();
+            showToast('已清除所有截圖紀錄');
+        }
+
+        function applyPreset(id) {
+            window.goAction(`request=setProfile&profile=${id}`, `呼叫預設位 P${id}`);
+        }
+
+        // 6. UI Interaction Logic
+        function switchTab(id) {
+            document.querySelectorAll('main > section').forEach(s => s.classList.add('hidden'));
+            $('#content-' + id).classList.remove('hidden');
+            dom.tabs.forEach(btn => {
+                const active = btn.dataset.tab === id;
+                btn.classList.toggle('tab-active', active);
+                btn.classList.toggle('text-gray-400', !active);
+            });
+        }
+
+        function initPtzTools() {
+            dom.ptz.cam.innerHTML = '';
+            for(let i=1; i<=CONFIG.CAM_COUNT; i++) {
+                const b = document.createElement('button');
+                b.className = `py-3 rounded-xl font-bold border border-white/5 transition-all ${i===1 ? 'ptz-btn-active':'bg-gray-800/40 text-gray-500 hover:text-white'}`;
+                b.textContent = i;
+                b.onclick = (e) => {
+                    state.selectedCam = i;
+                    dom.ptz.cam.querySelectorAll('button').forEach((btn, idx) => btn.className = `py-3 rounded-xl font-bold border border-white/5 transition-all ${idx+1 === i ? 'ptz-btn-active':'bg-gray-800/40 text-gray-500 hover:text-white'}`);
+                };
+                dom.ptz.cam.appendChild(b);
+            }
+            dom.ptz.view.innerHTML = '';
+            for(let i=0; i<CONFIG.VIEW_COUNT; i++) {
+                const b = document.createElement('button');
+                b.className = `py-2 rounded-lg font-mono text-xs border border-white/5 transition-all ${i===0 ? 'ptz-btn-active':'bg-gray-800/40 text-gray-500 hover:text-white'}`;
+                b.textContent = i;
+                b.onclick = () => {
+                    state.selectedView = i;
+                    dom.ptz.view.querySelectorAll('button').forEach((btn, idx) => btn.className = `py-2 rounded-lg font-mono text-xs border border-white/5 transition-all ${idx === i ? 'ptz-btn-active':'bg-gray-800/40 text-gray-500 hover:text-white'}`);
+                };
+                dom.ptz.view.appendChild(b);
+            }
+        }
+
+        function initLiveTools() {
+            dom.live.layout.innerHTML = '';
+            CONFIG.LIVE_LAYOUTS.forEach(l => {
+                const b = document.createElement('button');
+                const active = l.id === state.liveLayout;
+                b.className = `py-3 rounded-xl text-xs font-bold border border-white/5 transition-all ${active ? 'live-btn-active' : 'bg-gray-800/40 text-gray-500 hover:text-white'}`;
+                b.textContent = l.name;
+                b.onclick = () => { state.liveLayout = l.id; initLiveTools(); };
+                dom.live.layout.appendChild(b);
+            });
+            renderLiveSources();
+        }
+
+        function renderLiveSources() {
+            dom.live.source.innerHTML = '';
+            const count = CONFIG.LIVE_LAYOUTS.find(l => l.id === state.liveLayout).srcCount;
+            for(let i=1; i<=count; i++) {
+                const div = document.createElement('div');
+                div.className = 'flex items-center space-x-2 bg-black/20 p-2 rounded-xl border border-white/5';
+                div.innerHTML = `<span class="text-[9px] font-bold text-gray-500 w-12 text-center">SRC ${i}</span>`;
+                const grp = document.createElement('div');
+                grp.className = 'flex flex-1 space-x-1';
+                for(let c=1; c<=4; c++) {
+                    const b = document.createElement('button');
+                    const active = state.sourceMap[i] === c;
+                    b.className = `flex-1 py-1.5 rounded-lg text-[10px] font-bold transition-all ${active ? 'bg-purple-600/30 text-purple-200 border border-purple-500/50':'bg-gray-800/40 text-gray-600 hover:text-gray-300'}`;
+                    b.textContent = `C${c}`;
+                    b.onclick = () => { state.sourceMap[i] = c; renderLiveSources(); };
+                    grp.appendChild(b);
+                }
+                div.appendChild(grp);
+                dom.live.source.appendChild(div);
+            }
+        }
+
+        // 7. Event Handlers
+        dom.login.btn.onclick = () => {
+            const ip = dom.login.ip.value.trim();
+            const user = dom.login.user.value || '1';
+            const pass = dom.login.pass.value || '';
+            
+            if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(ip)) return showToast("請輸入有效的 IP 地址", "error");
+            
+            state.ip = ip;
+            state.auth = btoa(`${user}:${pass}`);
+            
+            if (dom.login.save.checked) {
+                localStorage.setItem('cam_ip', ip);
+                localStorage.setItem('cam_user', user);
+            }
+            
+            $('#displayIp').textContent = `IP: ${ip}`;
+            dom.login.modal.classList.add('opacity-0', 'pointer-events-none');
+            
+            setTimeout(() => {
+                dom.login.modal.classList.add('hidden');
+                dom.app.classList.remove('hidden');
+                setTimeout(() => {
+                    dom.app.classList.remove('opacity-0', 'pointer-events-none');
+                    startApp();
+                }, 100);
+            }, 500);
+        };
+
+        $('#logoutBtn').onclick = () => location.reload();
+
+        dom.sync.btn.onclick = () => fetchProfiles();
+
+        dom.tabs.forEach(b => b.onclick = () => switchTab(b.dataset.tab));
+
+        dom.ptz.btn.onclick = async () => {
+            dom.ptz.btn.disabled = true;
+            try {
+                await goAction(`request=ptzGoPreset&camDid=${state.selectedCam}&presetNum=${state.selectedView}`, `CAM ${state.selectedCam} -> P${state.selectedView}`);
+            } finally { dom.ptz.btn.disabled = false; }
+        };
+
+        dom.live.applyBtn.onclick = async () => {
+            dom.live.loader.classList.remove('hidden');
+            dom.live.applyBtn.disabled = true;
+            try {
+                await callApi(`request=setLiveLayout&liveLayout=${state.liveLayout}`);
+                const count = CONFIG.LIVE_LAYOUTS.find(l => l.id === state.liveLayout).srcCount;
+                for(let i=1; i<=count; i++) {
+                    await callApi(`request=setLiveModeSource&liveLayout=${state.liveLayout}&srcOrder=${i}&camDid=${state.sourceMap[i]}&camView=0`);
+                }
+                showToast("佈局套用成功");
+            } catch(e) { } finally {
+                dom.live.loader.classList.add('hidden');
+                dom.live.applyBtn.disabled = false;
+            }
+        };
+
+        dom.tester.btn.onclick = async () => {
+            dom.tester.loader.classList.remove('hidden');
+            dom.tester.output.textContent = "傳送中...";
+            try {
+                const res = await callApi(dom.tester.select.value);
+                const text = await res.text();
+                try {
+                    const start = Math.max(text.indexOf('{'), text.indexOf('['));
+                    const end = Math.max(text.lastIndexOf('}'), text.lastIndexOf(']'));
+                    if (start !== -1 && end !== -1) {
+                        const json = JSON.parse(text.substring(start, end + 1));
+                        dom.tester.output.textContent = JSON.stringify(json, null, 4);
+                    } else dom.tester.output.textContent = text;
+                } catch { dom.tester.output.textContent = text; }
+            } catch (err) { dom.tester.output.textContent = `FAILED: ${err.message}`; }
+            finally { dom.tester.loader.classList.add('hidden'); }
+        };
+
+        document.addEventListener('click', (e) => {
+            if (e.target.dataset.action) {
+                const act = e.target.dataset.action;
+                goAction(`request=${act}`, act === 'pause' ? '暫停追蹤' : '恢復追蹤');
+            }
+        });
+
+        // 8. Lifecycle
+        function startApp() {
+            state.isStreaming = true;
+            updateCameraFrame();
+            initPresetPage(); // 畫出骨架並同步讀取快取中的 Base64 截圖
+            fetchProfiles(); // 非同步抓取資料並更新名稱標籤
+            initLiveTools();
+            initPtzTools();
+        }
+
+        window.onload = initStorage;
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible' && state.isStreaming) {
+                updateCameraFrame();
+            } else {
+                clearTimeout(state.refreshTimer);
+            }
+        });
+    </script>
+</body>
+</html>
